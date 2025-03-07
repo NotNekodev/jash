@@ -13,6 +13,7 @@
 #include <core/history.h>
 #include <core/util/signal.h>
 #include <core/completion.h>
+#include <core/builtin.h>
 
 #define MAX_CMD_LEN 4096
 
@@ -25,13 +26,16 @@ int main(int argc, char *argv[]) {
 
     init_shell_data();
     config_init();
-
-    init_complete();
     
     change_cwd(glob_config->default_directory);
     apply_cursor_style();
 
     history_init();
+
+    if (glob_config->completion_enable) {
+        init_builtin();
+        init_complete();
+    }
     
     while (1) {
         send_prompt_to_buffer(prompt);
@@ -67,14 +71,15 @@ int main(int argc, char *argv[]) {
         }
         cmd_argv[i] = NULL;
         
-        if (strcmp(cmd_argv[0], "cd") == 0) {
-            change_cwd(i > 1 ? cmd_argv[1] : NULL);
-        } else {
+        if (builtin_handler(i, cmd_argv) == -2) {
+            
             command_running = 1;
             
             exec_cmd(cmd_argv[0], cmd_argv);
             
             command_running = 0;
+        } else {
+            ;;
         }
         
         free(cmd_copy);

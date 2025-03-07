@@ -5,7 +5,7 @@ void init_complete();
 void scan_path_for_commands();
 void cleanup_completion();
 
-void scan_path_for_commands();
+void register_builtin_commands(char **commands, int count);
 
 
 #endif // __COMPLETION_H__

@@ -1,7 +1,11 @@
 CC := clang
 CFLAGS := -Wall \
 		  -I include \
-		  -g
+		  -g \
+		  -Wno-unused-but-set-variable \
+		  -Wno-unused-variable \
+		  -Wno-unused-function \
+		  -Wno-unused-parameter
 LDFLAGS := -lm -lreadline
 
 SRC_DIR := src

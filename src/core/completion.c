@@ -10,8 +10,8 @@
 #include <pthread.h>
 #include <time.h>
 #include <core/completion.h>
+#include <core/config.h>
 
-#define INITIAL_COMMAND_BUFFER 1024
 #define PATH_BUFFER_SIZE 4096
 #define HASH_SIZE 8192
 #define EXEC_CACHE_SIZE 1024
@@ -21,18 +21,20 @@ static char **command_completion(const char *text, int start, int end);
 static char *command_generator(const char *text, int state);
 static char *filename_generator(const char *text, int state);
 
-static char **path_commands = NULL;
-static int num_path_commands = 0;
-static int max_commands = 0;
-static int command_matches_found = 0;
-static pthread_mutex_t path_commands_mutex = PTHREAD_MUTEX_INITIALIZER;
+// Trie node structure
+typedef struct TrieNode {
+    struct TrieNode *children[128];  // ASCII character set
+    char *command;                   // NULL if not a complete command
+    time_t timestamp;                // When this node was last updated
+} TrieNode;
 
-static char **hash_table[HASH_SIZE] = {NULL};
-static int hash_entries[HASH_SIZE] = {0};
-static int hash_sizes[HASH_SIZE] = {0};
-
+static TrieNode *command_trie = NULL;
+static pthread_mutex_t trie_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char **builtin_commands = NULL;
 static int num_builtins = 0;
+static int is_trie_initialized = 0;
+static time_t last_path_scan = 0;
+static int command_matches_found = 0;
 
 typedef struct {
     char *path;
@@ -43,6 +45,25 @@ typedef struct {
 static exec_cache_entry_t exec_cache[EXEC_CACHE_SIZE];
 static unsigned int exec_cache_clock = 0;
 
+// Hash map for quick command lookup
+typedef struct {
+    char *command;
+    time_t timestamp;
+} HashEntry;
+
+static HashEntry hash_table[HASH_SIZE];
+
+// Function prototypes for trie operations
+static TrieNode* create_trie_node();
+static void insert_into_trie(TrieNode *root, const char *command);
+static void collect_trie_matches(TrieNode *node, const char *prefix, char ***matches, int *match_count, int *max_matches);
+static void free_trie_node(TrieNode *node);
+static int search_trie_commands(const char *prefix, char ***matches);
+
+// Function prototypes for path scanning
+static void lazy_scan_path();
+static void* scan_directory_thread(void *arg);
+
 static inline unsigned int hash_string(const char *str) {
     unsigned int hash = 5381;
     int c;
@@ -50,38 +71,33 @@ static inline unsigned int hash_string(const char *str) {
     return hash % HASH_SIZE;
 }
 
-static inline int string_exists_in_hash(const char *str) {
+static inline int check_hash_cache(const char *str) {
     unsigned int hash = hash_string(str);
-    for (int i = 0; i < hash_entries[hash]; i++)
-        if (strcmp(hash_table[hash][i], str) == 0) return 1;
+    if (hash_table[hash].command && strcmp(hash_table[hash].command, str) == 0) {
+        time_t now = time(NULL);
+        if (now - hash_table[hash].timestamp < glob_config->cache_ttl) {
+            return 1;
+        }
+    }
     return 0;
 }
 
-static inline void add_string_to_hash(const char *str) {
+static inline void add_to_hash_cache(const char *str) {
     unsigned int hash = hash_string(str);
     
-    if (!hash_table[hash]) {
-        hash_sizes[hash] = 16;
-        hash_table[hash] = malloc(hash_sizes[hash] * sizeof(char*));
-        hash_entries[hash] = 0;
+    if (hash_table[hash].command) {
+        free(hash_table[hash].command);
     }
     
-    if (hash_entries[hash] >= hash_sizes[hash]) {
-        hash_sizes[hash] *= 2;
-        hash_table[hash] = realloc(hash_table[hash], hash_sizes[hash] * sizeof(char*));
-    }
-    
-    hash_table[hash][hash_entries[hash]++] = strdup(str);
+    hash_table[hash].command = strdup(str);
+    hash_table[hash].timestamp = time(NULL);
 }
 
-static void clear_hash_table() {
+static void clear_hash_cache() {
     for (int i = 0; i < HASH_SIZE; i++) {
-        if (hash_table[i]) {
-            for (int j = 0; j < hash_entries[i]; j++) free(hash_table[i][j]);
-            free(hash_table[i]);
-            hash_table[i] = NULL;
-            hash_entries[i] = 0;
-            hash_sizes[i] = 0;
+        if (hash_table[i].command) {
+            free(hash_table[i].command);
+            hash_table[i].command = NULL;
         }
     }
 }
@@ -96,6 +112,105 @@ static void clear_exec_cache() {
     exec_cache_clock = 0;
 }
 
+// Trie implementation
+static TrieNode* create_trie_node() {
+    TrieNode *node = (TrieNode*)malloc(sizeof(TrieNode));
+    if (node) {
+        memset(node->children, 0, sizeof(node->children));
+        node->command = NULL;
+        node->timestamp = time(NULL);
+    }
+    return node;
+}
+
+static void insert_into_trie(TrieNode *root, const char *command) {
+    if (!root || !command) return;
+    
+    TrieNode *current = root;
+    const unsigned char *p = (const unsigned char *)command;
+    
+    while (*p) {
+        if (!current->children[*p]) {
+            current->children[*p] = create_trie_node();
+        }
+        current = current->children[*p];
+        p++;
+    }
+    
+    // Mark end of command
+    if (!current->command) {
+        current->command = strdup(command);
+    }
+    current->timestamp = time(NULL);
+}
+
+static void collect_trie_matches(TrieNode *node, const char *prefix, char ***matches, int *match_count, int *max_matches) {
+    if (!node) return;
+    
+    // If this node represents a complete command, add it
+    if (node->command) {
+        // Check if we need to expand our matches array
+        if (*match_count >= *max_matches) {
+            *max_matches *= 2;
+            *matches = realloc(*matches, *max_matches * sizeof(char*));
+        }
+        
+        (*matches)[(*match_count)++] = strdup(node->command);
+    }
+    
+    // Recursively check all possible children
+    for (int i = 0; i < 128; i++) {
+        if (node->children[i]) {
+            collect_trie_matches(node->children[i], prefix, matches, match_count, max_matches);
+        }
+    }
+}
+
+static int search_trie_commands(const char *prefix, char ***matches) {
+    if (!command_trie || !prefix) return 0;
+    
+    TrieNode *current = command_trie;
+    const unsigned char *p = (const unsigned char *)prefix;
+    
+    // Navigate to the node corresponding to the prefix
+    while (*p && current) {
+        current = current->children[*p];
+        p++;
+    }
+    
+    // If we couldn't find the prefix, return 0
+    if (!current) return 0;
+    
+    // Initialize matches array
+    int max_matches = MAX_MATCHES_INIT;
+    *matches = malloc(max_matches * sizeof(char*));
+    int match_count = 0;
+    
+    // Collect all commands that start with the given prefix
+    collect_trie_matches(current, prefix, matches, &match_count, &max_matches);
+    
+    return match_count;
+}
+
+static void free_trie_node(TrieNode *node) {
+    if (!node) return;
+    
+    // Recursively free all children
+    for (int i = 0; i < 128; i++) {
+        if (node->children[i]) {
+            free_trie_node(node->children[i]);
+        }
+    }
+    
+    // Free the command if it exists
+    if (node->command) {
+        free(node->command);
+    }
+    
+    free(node);
+}
+
+// Initialize completion
 void register_builtin_commands(char **commands, int count) {
     if (builtin_commands) {
         for (int i = 0; i < num_builtins; i++) free(builtin_commands[i]);
@@ -111,8 +226,21 @@ void register_builtin_commands(char **commands, int count) {
 void init_complete() {
     rl_attempted_completion_function = command_completion;
     rl_completion_append_character = '\0';
+    
+    // Initialize command_trie if not already done
+    pthread_mutex_lock(&trie_mutex);
+    if (!command_trie) {
+        command_trie = create_trie_node();
+        
+        // Insert builtin commands into trie
+        for (int i = 0; i < num_builtins; i++) {
+            insert_into_trie(command_trie, builtin_commands[i]);
+        }
+    }
+    pthread_mutex_unlock(&trie_mutex);
+    
     memset(exec_cache, 0, sizeof(exec_cache));
-    scan_path_for_commands();
+    memset(hash_table, 0, sizeof(hash_table));
 }
 
 static inline int has_exe_extension(const char *filename) {
@@ -145,7 +273,7 @@ static inline int is_executable_file(const char *path) {
     time_t now = time(NULL);
     
     if (exec_cache[idx].path && strcmp(exec_cache[idx].path, path) == 0) {
-        if (now - exec_cache[idx].last_checked < 5) return exec_cache[idx].is_executable;
+        if (now - exec_cache[idx].last_checked < glob_config->cache_ttl) return exec_cache[idx].is_executable;
         int result = is_executable_file_with_stat(path, NULL);
         exec_cache[idx].is_executable = result;
         exec_cache[idx].last_checked = now;
@@ -154,7 +282,7 @@ static inline int is_executable_file(const char *path) {
     
     unsigned int start_idx = idx;
     while (1) {
-        if (!exec_cache[idx].path || now - exec_cache[idx].last_checked > 300) {
+        if (!exec_cache[idx].path || now - exec_cache[idx].last_checked > glob_config->cache_ttl) {
             if (exec_cache[idx].path) free(exec_cache[idx].path);
             int result = is_executable_file_with_stat(path, NULL);
             exec_cache[idx].path = strdup(path);
@@ -176,17 +304,13 @@ static inline int is_executable_file(const char *path) {
     return result;
 }
 
-static void* scan_directory(void *arg) {
+static void* scan_directory_thread(void *arg) {
     char *dir = (char*)arg;
     DIR *dp = opendir(dir);
     if (!dp) {
         free(dir);
         return NULL;
     }
-    
-    int local_max = 256;
-    int local_count = 0;
-    char **local_commands = malloc(local_max * sizeof(char*));
     
     char full_path[PATH_BUFFER_SIZE];
     int dir_len = strlen(dir);
@@ -201,83 +325,45 @@ static void* scan_directory(void *arg) {
         
         struct stat st;
         if (stat(full_path, &st) == 0 && is_executable_file_with_stat(full_path, &st)) {
-            if (local_count >= local_max - 1) {
-                local_max *= 2;
-                local_commands = realloc(local_commands, local_max * sizeof(char*));
-            }
+            pthread_mutex_lock(&trie_mutex);
             
             int is_exe = has_exe_extension(entry->d_name);
             char *name_to_store = strdup(entry->d_name);
             if (is_exe) name_to_store[strlen(name_to_store) - 4] = '\0';
             
-            int found_local = 0;
-            for (int i = 0; i < local_count; i++) {
-                if (strcmp(local_commands[i], name_to_store) == 0) {
-                    found_local = 1;
-                    free(name_to_store);
-                    break;
-                }
+            insert_into_trie(command_trie, name_to_store);
+            add_to_hash_cache(name_to_store);
+            free(name_to_store);
+            
+            if (is_exe) {
+                char *name_with_exe = strdup(entry->d_name);
+                insert_into_trie(command_trie, name_with_exe);
+                add_to_hash_cache(name_with_exe);
+                free(name_with_exe);
             }
             
-            if (!found_local) {
-                local_commands[local_count++] = name_to_store;
-                
-                if (is_exe) {
-                    char *name_with_exe = strdup(entry->d_name);
-                    found_local = 0;
-                    for (int i = 0; i < local_count - 1; i++) {
-                        if (strcmp(local_commands[i], name_with_exe) == 0) {
-                            found_local = 1;
-                            free(name_with_exe);
-                            break;
-                        }
-                    }
-                    
-                    if (!found_local) local_commands[local_count++] = name_with_exe;
-                }
-            }
+            pthread_mutex_unlock(&trie_mutex);
         }
     }
     closedir(dp);
-    
-    if (local_count > 0) {
-        pthread_mutex_lock(&path_commands_mutex);
-        
-        if (num_path_commands + local_count >= max_commands) {
-            max_commands = num_path_commands + local_count + 256;
-            path_commands = realloc(path_commands, max_commands * sizeof(char*));
-        }
-        
-        for (int i = 0; i < local_count; i++) {
-            if (!string_exists_in_hash(local_commands[i])) {
-                path_commands[num_path_commands++] = local_commands[i];
-                add_string_to_hash(local_commands[i]);
-            } else {
-                free(local_commands[i]);
-            }
-        }
-        
-        pthread_mutex_unlock(&path_commands_mutex);
-    } else {
-        for (int i = 0; i < local_count; i++) free(local_commands[i]);
-    }
-    
-    free(local_commands);
     free(dir);
     return NULL;
 }
 
-void scan_path_for_commands() {
+static void lazy_scan_path() {
+    time_t now = time(NULL);
+    
+    // Don't scan more often than every 5 minutes
+    if (now - last_path_scan < 300) return;
+    
+    last_path_scan = now;
+    
     char *path_env = getenv("PATH");
     if (!path_env) return;
     
-    cleanup_completion();
-    clear_hash_table();
-    clear_exec_cache();
-    
-    max_commands = INITIAL_COMMAND_BUFFER;
-    path_commands = malloc(max_commands * sizeof(char*));
-    num_path_commands = 0;
+    char *path_copy = strdup(path_env);
+    char *start = path_copy;
+    char *end;
     
     int dir_count = 1;
     for (char *p = path_env; *p; p++) if (*p == ':') dir_count++;
@@ -285,43 +371,78 @@ void scan_path_for_commands() {
     pthread_t *threads = malloc(dir_count * sizeof(pthread_t));
     int thread_count = 0;
     
-    char *path_copy = strdup(path_env);
-    char *start = path_copy;
-    char *end;
-    
     while (start && *start) {
         end = strchr(start, ':');
         if (end) *end = '\0';
         
         if (*start) {
             char *dir_copy = strdup(start);
-            pthread_create(&threads[thread_count++], NULL, scan_directory, dir_copy);
+            pthread_create(&threads[thread_count++], NULL, scan_directory_thread, dir_copy);
         }
         
         if (end) start = end + 1;
         else start = NULL;
     }
     
-    for (int i = 0; i < thread_count; i++) pthread_join(threads[i], NULL);
+    // Don't wait for threads to complete - let them run in background
+    for (int i = 0; i < thread_count; i++) {
+        pthread_detach(threads[i]);
+    }
     
     free(threads);
     free(path_copy);
 }
 
-void cleanup_completion() {
-    pthread_mutex_lock(&path_commands_mutex);
-    if (path_commands) {
-        for (int i = 0; i < num_path_commands; i++) free(path_commands[i]);
-        free(path_commands);
-        path_commands = NULL;
-        num_path_commands = 0;
-        max_commands = 0;
+void scan_path_for_commands() {
+    // Reset the completion system first
+    cleanup_completion();
+    
+    // Initialize new trie and scan immediately
+    pthread_mutex_lock(&trie_mutex);
+    command_trie = create_trie_node();
+    
+    // Add builtins to trie
+    for (int i = 0; i < num_builtins; i++) {
+        insert_into_trie(command_trie, builtin_commands[i]);
     }
-    pthread_mutex_unlock(&path_commands_mutex);
+    pthread_mutex_unlock(&trie_mutex);
+    
+    // Perform an immediate scan
+    last_path_scan = 0;  // Force scan
+    lazy_scan_path();
+}
+
+void cleanup_completion() {
+    pthread_mutex_lock(&trie_mutex);
+    if (command_trie) {
+        free_trie_node(command_trie);
+        command_trie = NULL;
+    }
+    pthread_mutex_unlock(&trie_mutex);
+    
     clear_exec_cache();
+    clear_hash_cache();
 }
 
 static char **command_completion(const char *text, int start, int end) {
+    // Initialize the trie on first completion if needed
+    if (!is_trie_initialized) {
+        pthread_mutex_lock(&trie_mutex);
+        if (!command_trie) {
+            command_trie = create_trie_node();
+            
+            // Add builtins to trie
+            for (int i = 0; i < num_builtins; i++) {
+                insert_into_trie(command_trie, builtin_commands[i]);
+            }
+            is_trie_initialized = 1;
+        }
+        pthread_mutex_unlock(&trie_mutex);
+    }
+    
+    // Trigger a lazy scan of PATH if needed
+    lazy_scan_path();
+    
     if (rl_line_buffer[0] == '\0' || (start == 0 && text[0] == '\0')) {
         rl_attempted_completion_over = 1;
         return NULL;
@@ -339,36 +460,42 @@ static char **command_completion(const char *text, int start, int end) {
 }
 
 static char *command_generator(const char *text, int state) {
-    static int list_index, len;
-    static int checking_builtins = 1;
+    static char **matches = NULL;
+    static int match_count = 0;
+    static int current_match = 0;
     
     if (!state) {
-        list_index = 0;
-        len = strlen(text);
-        checking_builtins = 1;
-    }
-
-    if (checking_builtins) {
-        while (list_index < num_builtins) {
-            char *name = builtin_commands[list_index++];
-            
-            if (strncmp(name, text, len) == 0) {
-                command_matches_found = 1;
-                return strdup(name);
+        // Free previous matches if any
+        if (matches) {
+            for (int i = 0; i < match_count; i++) {
+                free(matches[i]);
+            }
+            free(matches);
+            matches = NULL;
+        }
+        
+        // First try builtin commands (directly, not through trie)
+        int builtin_matches = 0;
+        int len = strlen(text);
+        for (int i = 0; i < num_builtins; i++) {
+            if (strncmp(builtin_commands[i], text, len) == 0) {
+                builtin_matches++;
             }
         }
         
-        checking_builtins = 0;
-        list_index = 0;
+        // Search trie for matches
+        match_count = search_trie_commands(text, &matches);
+        
+        // If we found at least one match, we'll return it
+        if (match_count > 0) {
+            command_matches_found = 1;
+            current_match = 0;
+        }
     }
     
-    while (list_index < num_path_commands) {
-        char *name = path_commands[list_index++];
-        
-        if (strncmp(name, text, len) == 0) {
-            command_matches_found = 1;
-            return strdup(name);
-        }
+    // Return the next match if available
+    if (current_match < match_count) {
+        return strdup(matches[current_match++]);
     }
     
     return NULL;

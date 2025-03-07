@@ -1,11 +1,27 @@
 #include <core/data.h>
 #include <core/config.h>
 
+#include <readline/tilde.h>
 #include <stddef.h>
 #include <string.h>
 #include <lib/inih.h>
 
 config_t *glob_config = NULL;
+
+char *tilde_to_complete_path(const char* tilde_path) {
+    char *path = strdup(tilde_path);
+    if (path[0] == '~') {
+        char *home = global_shell_data->home;
+        char *rest = path + 1;
+        if (strlen(rest) == 0 || rest[0] == '/') {
+            free(path);
+            path = malloc(strlen(home) + strlen(rest) + 1);
+            strcpy(path, home);
+            strcat(path, rest);
+        }
+    }
+    return path;
+}
 
 static int handler(void* user, const char* section, const char* name, const char* value) {
     config_t *config = (config_t *)user;
@@ -16,11 +32,11 @@ static int handler(void* user, const char* section, const char* name, const char
         } else if (strcmp(name, "HistorySize") == 0) {
             config->history_size = atoi(value);
         } else if (strcmp(name, "HistoryFile") == 0) {
-            config->history_file = strdup(value);
+            config->history_file = strdup(tilde_to_complete_path(value));
         } else if (strcmp(name, "DefaultDirectory") == 0) {
             config->default_directory = strdup(value);
-        } else if (strcmp(name, "Debug") == 0) {
-            config->debug = strcmp(value, "true") == 0 ? 1 : 0;
+        }  else if (strcmp(name, "MaxCommandSize") == 0) {
+            config->max_command_size = atoi(value);
         }
     } else if (strcmp(section, "Cursor") == 0) {
         if (strcmp(name, "Style") == 0) {
@@ -31,6 +47,16 @@ static int handler(void* user, const char* section, const char* name, const char
             config->cursor_blink_rate = atoi(value);
         } else if (strcmp(name, "CustomSequence") == 0) {
             strncpy(config->cursor_custom_sequence, value, sizeof(config->cursor_custom_sequence) - 1);
+        }
+    } else if (strcmp(section, "Completion") == 0) {
+        if (strcmp(name, "Enable") == 0) {
+            config->completion_enable = strcmp(value, "true") == 0 ? 1 : 0;
+        } else if (strcmp(name, "CacheTTL") == 0) {
+            config->cache_ttl = atoi(value);
+        }
+    } else if (strcmp(section, "Commands")) {
+        if (strcmp(name, "XpgEcho") == 0) {
+            config->xpg_echo = strcmp(value, "true") == 0 ? 1 : 0;
         }
     }
 
@@ -44,8 +70,19 @@ void config_init() {
     glob_config = malloc(sizeof(config_t));
     
     if (ini_parse(path_to_conf, handler, glob_config) < 0) {
-        fprintf(stderr, "couldnt load config file\n");
-        exit(1);
+        printf("warning: can't load config file %s\n", path_to_conf);
+        glob_config->prompt = strdup("$$USER$$@$$HOST$$:$$DIR$$$");
+        glob_config->history_size = 2048;
+        glob_config->history_file = strdup(tilde_to_complete_path("~/.jash_history"));
+        glob_config->default_directory = strdup("~");
+        glob_config->max_command_size = 1024;
+        strncpy(glob_config->cursor_style, "block", sizeof(glob_config->cursor_style) - 1);
+        glob_config->cursor_blink_enabled = 1;
+        glob_config->cursor_blink_rate = 500;
+        strncpy(glob_config->cursor_custom_sequence, "\\033[2 q", sizeof(glob_config->cursor_custom_sequence) - 1);
+        glob_config->completion_enable = 1;
+        glob_config->cache_ttl = 3600;
+        glob_config->xpg_echo = 0;
     }
 
     global_shell_data->prompt = glob_config->prompt;

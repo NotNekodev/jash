@@ -105,7 +105,7 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
 
 ### Available Configuration Options
 
-`[Core]`** section**
+`[Core]` **section**
 
 - `Prompt`: Customizes the shell prompt with the following placeholders:
     - `$$DIR$$`: Current working directory
@@ -115,9 +115,9 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
 - `HistorySize`: The size of the command history before looping
 - `HistoryFile`: Where to store the command history. (Don't use '~')
 - `DefaultDirectory`: The default directory thats open when you launch the shell
-- `Debug`: Enables various debug options
+- `MaxCommandSize`: The maximum size for a command
 
-`[Cursor]`** section**
+`[Cursor]` **section**
 
 - `Style`: The cursor style. There are 4 possible options:
   - `block`: Block Cursor, the default one
@@ -127,6 +127,14 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
 - `BlinkEnables`: When enabled the cursor will blink. Otherwise not
 - `BlinkInterval`: The interval in which the cursor will blink
 - `CustomSequence`: What to print when the cursor configuration is `custom` (experts only)
+
+`[Completion]` **section**
+
+- `Enable`: If set it will enable tab completion
+- `CacheTTL`: Time to live of the command cache in seconds
+
+`[Commands]` **section**
+- `XpgEcho`: Enables bash like xpg_echo / Posixly correct echo
 
 ### Example Configuration
 ```ini
@@ -140,16 +148,23 @@ Prompt=$$USER$$@$$HOST$$:$$DIR$$$
 HistorySize=2048
 HistoryFile=/home/neko/.jash_history
 DefaultDirectory=~
-Debug=false
+MaxCommandSize=1024
 
 [Cursor]
 ; Cursor style: block, underline, bar, custom
 Style=block
-BlinkEnabled=true
+BlinkEnabled=false
 BlinkInterval=500
 
 ; Custom cursor settings (used when Style=custom)
 CustomSequence=\033[3 q
+
+[Completion]
+Enable=true
+CacheTTL=3600
+
+[Commands]
+XpgEcho=false
 ```
 
 ## Development
