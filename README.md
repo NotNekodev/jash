@@ -98,23 +98,58 @@ Log out and log back in for the changes to take effect.
 - Command history with persistence
 - Standard  path resolution
 - Configurable via INI file
+- Extensible command completion
 
 ## Configuration
 Jash can be configured by creating or editing the .`jashconf.ini`file in your home directory.
 
 ### Available Configuration Options
 
-**`[shell]` section**
+`[Core]`** section**
 
-- `prompt`: Customizes the shell prompt with the following placeholders:
+- `Prompt`: Customizes the shell prompt with the following placeholders:
     - `$$DIR$$`: Current working directory
     - `$$USER$$`: Current username
     - `$$HOST$$`: Current hostname
 
+- `HistorySize`: The size of the command history before looping
+- `HistoryFile`: Where to store the command history. (Don't use '~')
+- `DefaultDirectory`: The default directory thats open when you launch the shell
+- `Debug`: Enables various debug options
+
+`[Cursor]`** section**
+
+- `Style`: The cursor style. There are 4 possible options:
+  - `block`: Block Cursor, the default one
+  - `underline`: Underline Cursor
+  - `bar`: A simple bar cursor
+  - `custom`: uses the `CustomSequence` below to "print" the cursor configuration
+- `BlinkEnables`: When enabled the cursor will blink. Otherwise not
+- `BlinkInterval`: The interval in which the cursor will blink
+- `CustomSequence`: What to print when the cursor configuration is `custom` (experts only)
+
 ### Example Configuration
 ```ini
-[shell]
-prompt = "$$USER$$@$$HOST$$:$$DIR$$ > "
+; Prompt variables:
+;  - $$USER$$ - current user name
+;  - $$HOST$$ - current host name
+;  - $$DIR$$ - current directory
+
+[Core]
+Prompt=$$USER$$@$$HOST$$:$$DIR$$$
+HistorySize=2048
+HistoryFile=/home/neko/.jash_history
+DefaultDirectory=~
+Debug=false
+
+[Cursor]
+; Cursor style: block, underline, bar, custom
+Style=block
+BlinkEnabled=true
+BlinkInterval=500
+
+; Custom cursor settings (used when Style=custom)
+CustomSequence=\033[3 q
 ```
 
 ## Development

@@ -1,57 +1,37 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+
 #include <readline/readline.h>
 #include <readline/history.h>
-#include <signal.h>
 #include <unistd.h>
-
-#include <execute.h>
-#include <data.h>
-#include <config.h>
-#include <util/history.h>
 #include <sys/prctl.h>
+
+#include <core/execute.h>
+#include <core/data.h>
+#include <core/config.h>
+#include <core/history.h>
+#include <core/util/signal.h>
+#include <core/completion.h>
 
 #define MAX_CMD_LEN 4096
 
-volatile sig_atomic_t command_running = 0;
-
-void sigint_handler(int sig) {
-    if (!command_running) {
-        printf("\n");
-        fprintf(stdout, "\033[?25h");
-        rl_on_new_line();
-        rl_replace_line("", 0);
-        rl_redisplay();
-    }
-}
-
 int main(int argc, char *argv[]) {
+    prctl(PR_SET_NAME, "jash", 0, 0, 0);
+    rl_readline_name = "jash";
+
     char *line;
     char prompt[MAX_PROMPT_LENGTH];
 
-    struct sigaction sa;
-    sa.sa_handler = sigint_handler;
-    sa.sa_flags = 0;
-    sigemptyset(&sa.sa_mask);
-    
-    if (sigaction(SIGINT, &sa, NULL) == -1) {
-        perror("sigaction");
-        exit(EXIT_FAILURE);
-    }
-
     init_shell_data();
     config_init();
-    
-    change_cwd("~");
 
-    prctl(PR_SET_NAME, "jash", 0, 0, 0);
+    init_complete();
     
+    change_cwd(glob_config->default_directory);
+    apply_cursor_style();
+
     history_init();
-
-    rl_catch_signals = 0;
-    rl_catch_sigwinch = 1;
-    rl_set_signals();
     
     while (1) {
         send_prompt_to_buffer(prompt);
