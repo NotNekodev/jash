@@ -1,0 +1,26 @@
+name: Build Jash
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Clang
+        run: sudo apt-get install clang
+
+      - name: Set up libreadline
+        run: sudo apt-get install libreadline-dev
+
+      - name: Build the project
+        run: make
