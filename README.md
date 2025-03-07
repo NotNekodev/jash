@@ -4,7 +4,12 @@
 
 **Just Another SHell - A lightweight, customizable Unix shell**
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+![GitHub License](https://img.shields.io/github/license/notnekodev/jash?style=flat-square)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NotNekodev/jash/build.yml?branch=trunk&style=flat-square&logo=githubactions)
+![GitHub last commit](https://img.shields.io/github/last-commit/notnekodev/jash?style=flat-square&logo=github)
+![GitHub commit activity](https://img.shields.io/github/commit-activity/t/notnekodev/jash?style=flat-square&logo=git)
+![GitHub Sponsors](https://img.shields.io/github/sponsors/notnekodev?style=flat-square&color=violet)
+
 
 </div>
 
