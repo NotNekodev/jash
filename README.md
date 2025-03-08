@@ -125,7 +125,6 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
   - `bar`: A simple bar cursor
   - `custom`: uses the `CustomSequence` below to "print" the cursor configuration
 - `BlinkEnables`: When enabled the cursor will blink. Otherwise not
-- `BlinkInterval`: The interval in which the cursor will blink
 - `CustomSequence`: What to print when the cursor configuration is `custom` (experts only)
 
 `[Completion]` **section**
@@ -156,8 +155,7 @@ MaxCommandSize=1024
 [Cursor]
 ; Cursor style: block, underline, bar, custom
 Style=block
-BlinkEnabled=false
-BlinkInterval=500
+BlinkEnabled=true
 
 ; Custom cursor settings (used when Style=custom)
 CustomSequence=\033[3 q
@@ -170,6 +168,7 @@ CacheTTL=3600
 UseBuiltinEcho=true
 XpgEcho=false
 ```
+
 
 ## Development
 

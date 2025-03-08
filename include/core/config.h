@@ -17,7 +17,6 @@ typedef struct config {
     /* Cursor */
     char cursor_style[64];
     bool cursor_blink_enabled;
-    int cursor_blink_rate;
     char cursor_custom_sequence[64];
 
     /* Completion */

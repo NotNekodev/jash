@@ -49,9 +49,7 @@ static int handler(void* user, const char* section, const char* name, const char
             strncpy(config->cursor_style, value, sizeof(config->cursor_style) - 1);
         } else if (strcmp(name, "BlinkEnabled") == 0) {
             config->cursor_blink_enabled = strcmp(value, "true") == 0 ? 1 : 0;
-        } else if (strcmp(name, "BlinkRate") == 0) {
-            config->cursor_blink_rate = atoi(value);
-        } else if (strcmp(name, "CustomSequence") == 0) {
+        }  else if (strcmp(name, "CustomSequence") == 0) {
             strncpy(config->cursor_custom_sequence, value, sizeof(config->cursor_custom_sequence) - 1);
         }
     } else if (strcmp(section, "Completion") == 0) {
@@ -101,7 +99,6 @@ void config_init() {
         glob_config->max_command_size = 1024;
         strncpy(glob_config->cursor_style, "block", sizeof(glob_config->cursor_style) - 1);
         glob_config->cursor_blink_enabled = 1;
-        glob_config->cursor_blink_rate = 500;
         strncpy(glob_config->cursor_custom_sequence, "\\033[2 q", sizeof(glob_config->cursor_custom_sequence) - 1);
         glob_config->completion_enable = 1;
         glob_config->cache_ttl = 3600;
@@ -135,13 +132,14 @@ void config_reload() {
         glob_config->max_command_size = 1024;
         strncpy(glob_config->cursor_style, "block", sizeof(glob_config->cursor_style) - 1);
         glob_config->cursor_blink_enabled = 1;
-        glob_config->cursor_blink_rate = 500;
         strncpy(glob_config->cursor_custom_sequence, "\\033[2 q", sizeof(glob_config->cursor_custom_sequence) - 1);
         glob_config->completion_enable = 1;
         glob_config->cache_ttl = 3600;
         glob_config->xpg_echo = 0;
         glob_config->use_builtin_echo = 1;
     }
+
+    apply_cursor_style();
 }
 
 void apply_cursor_style(void) {
@@ -171,10 +169,6 @@ void apply_cursor_style(void) {
             }
             
             printf("%s", processed);
-        }
-        
-        if (glob_config->cursor_blink_enabled && glob_config->cursor_blink_rate > 0) {
-            printf("\033]12;%d\007", glob_config->cursor_blink_rate);
         }
     } else if (is_linux) {
         if (glob_config->cursor_blink_enabled) {
@@ -207,10 +201,6 @@ void apply_cursor_style(void) {
         }
         
         printf("\033[?12%c", glob_config->cursor_blink_enabled ? 'h' : 'l');
-        
-        if (glob_config->cursor_blink_enabled && glob_config->cursor_blink_rate > 0) {
-            printf("\033]12;%d\007", glob_config->cursor_blink_rate);
-        }
     }
     
     fflush(stdout);
