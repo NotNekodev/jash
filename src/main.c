@@ -8,7 +8,6 @@
 #include <sys/prctl.h>
 
 #include <core/execute.h>
-#include <core/data.h>
 #include <core/config.h>
 #include <core/history.h>
 #include <core/util/signal.h>
@@ -24,7 +23,6 @@ int main(int argc, char *argv[]) {
     char *line;
     char prompt[MAX_PROMPT_LENGTH];
 
-    init_shell_data();
     config_init();
     
     change_cwd(glob_config->default_directory);
@@ -71,8 +69,9 @@ int main(int argc, char *argv[]) {
         }
         cmd_argv[i] = NULL;
         
-        if (builtin_handler(i, cmd_argv) == -2) {
-            
+        int result = builtin_handler(i, cmd_argv);
+
+        if (result == -2) {
             command_running = 1;
             
             exec_cmd(cmd_argv[0], cmd_argv);
@@ -87,7 +86,16 @@ int main(int argc, char *argv[]) {
     }
     
     history_cleanup();
-    free(global_shell_data);
+    
+    // Free allocated memory in glob_config
+    free(glob_config->prompt);
+    free(glob_config->history_file);
+    free(glob_config->default_directory);
+    free(glob_config->cwd);
+    free(glob_config->home);
+    free(glob_config->user);
+    free(glob_config->hostname);
+    free(glob_config);
     
     return 0;
 }

@@ -1,9 +1,11 @@
 #include <core/builtin.h>
 #include <string.h>
 #include <stdlib.h>
-#include <core/data.h>
 #include <core/completion.h>
 #include <core/cmd/echo.h>
+#include <core/config.h>
+#include <core/config.h>
+#include <stdio.h>
 
 void init_builtin() {
     char *builtins[] = {"cd", "set", "unset", "echo", "exit"};
@@ -38,6 +40,9 @@ int builtin_handler(int argc, char **argv) {
     } else if (strcmp(argv[0], "echo") == 0) {
         int i = exec_echo(argc, argv);
         return i;
+    } else if (strcmp(argv[0], "reload") == 0) {
+        config_reload();
+        return 0;
     } else {
         return -2;
     }

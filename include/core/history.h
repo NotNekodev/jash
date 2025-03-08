@@ -3,7 +3,6 @@
 
 #include <stddef.h>
 
-#define MAX_HISTORY_LEN 1024
 
 void history_init();
 void history_add(const char *cmd);

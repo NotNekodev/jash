@@ -1,3 +1,7 @@
+/*
+This is really some wizardry but its really fast (put jeremy clarkson meme here) so im gonna keep it that way.
+*/
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

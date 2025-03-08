@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
-#include <core/data.h>
 #include <core/config.h>
 
 void history_init() {

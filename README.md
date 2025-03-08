@@ -135,8 +135,11 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
 
 `[Commands]` **section**
 - `XpgEcho`: Enables bash like xpg_echo / Posixly correct echo
+- `UseBuiltinEcho`: If set it will not use the `echo` binary but a custom variant
 
 ### Example Configuration
+This configuration also represents the standart configuration if the file cannot be loaded
+
 ```ini
 ; Prompt variables:
 ;  - $$USER$$ - current user name
@@ -164,6 +167,7 @@ Enable=true
 CacheTTL=3600
 
 [Commands]
+UseBuiltinEcho=true
 XpgEcho=false
 ```
 
