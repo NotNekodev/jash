@@ -13,7 +13,7 @@
 #include <core/util/signal.h>
 #include <core/completion.h>
 #include <core/builtin.h>
-#include <core/util/str.h>
+#include <core/util/sanitize.h>
 
 #define MAX_CMD_LEN 4096
 
@@ -67,13 +67,14 @@ int main(int argc, char *argv[]) {
         }
         cmd_argv[i] = NULL;
 
+        sanitize_command_args(cmd_argv);
+
         if (strcmp(cmd_argv[0], "exit") == 0) {
             free(line);
             free(cmd_copy);
             break;
         }
 
-        
         int result = builtin_handler(i, cmd_argv);
 
         if (result == -2) {

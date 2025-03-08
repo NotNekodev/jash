@@ -32,6 +32,7 @@ typedef struct config {
     char *home;
     char *user;
     char *hostname;
+    char* path_str;
 } config_t;
 
 extern config_t * glob_config;

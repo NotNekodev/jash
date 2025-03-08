@@ -9,23 +9,9 @@
 #include <pwd.h>
 #include <limits.h>
 #include <lib/inih.h>
+#include <core/util/sanitize.h>
 
 config_t *glob_config = NULL;
-
-void tilde_to_complete_path(const char* path, char* expanded_path, size_t size) {
-    if (path[0] == '~') {
-        const char *home = getenv("HOME");  // Get the home directory
-        if (!home) {
-            fprintf(stderr, "HOME environment variable is not set.\n");
-            return;
-        }
-        
-        snprintf(expanded_path, size, "%s%s", home, path + 1);
-    } else {
-        strncpy(expanded_path, path, size - 1);
-        expanded_path[size - 1] = '\0';
-    }
-}
 
 static int handler(void* user, const char* section, const char* name, const char* value) {
     config_t *config = (config_t *)user;
@@ -115,6 +101,9 @@ void config_reload() {
         config_init();
         return;
     }
+
+    char* path = getenv("PATH");
+    glob_config->path_str = strdup(path);
 
     free(glob_config->prompt);
     free(glob_config->history_file);
@@ -212,7 +201,7 @@ void change_cwd(char *new_cwd) {
     }
 
     if (new_cwd == NULL) {
-        if(chdir(getenv("HOME")) != 0) {
+        if(chdir(glob_config->home) != 0) {
             perror("cd error");
             return;
         }

@@ -116,6 +116,7 @@ Jash can be configured by creating or editing the .`jashconf.ini`file in your ho
 - `HistoryFile`: Where to store the command history. (Don't use '~')
 - `DefaultDirectory`: The default directory thats open when you launch the shell
 - `MaxCommandSize`: The maximum size for a command
+- `StartupScript`: The script to run on startup
 
 `[Cursor]` **section**
 
@@ -151,6 +152,7 @@ HistorySize=2048
 HistoryFile=/home/neko/.jash_history
 DefaultDirectory=~
 MaxCommandSize=1024
+StartupScript=~/.jashrc
 
 [Cursor]
 ; Cursor style: block, underline, bar, custom

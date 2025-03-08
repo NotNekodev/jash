@@ -444,6 +444,9 @@ static char **command_completion(const char *text, int start, int end) {
         pthread_mutex_unlock(&trie_mutex);
     }
     
+    
+    rl_completion_append_character = '\0';
+
     // Trigger a lazy scan of PATH if needed
     lazy_scan_path();
     
